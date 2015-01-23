@@ -20,7 +20,7 @@ namespace Sms.Test.Services
         {
 	        fileBasedConfiguration = FileBasedConfiguration.LoadConfiguration();
 			router = new RouterService(fileBasedConfiguration);
-            Task.Factory.StartNew(router.Start);
+            router.Start();
         }
 
         [TearDown]

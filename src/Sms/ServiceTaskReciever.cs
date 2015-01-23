@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Sms.Messaging;
 using Sms.Routing;
 using Sms.Services;
@@ -84,7 +86,7 @@ namespace Sms
             return null;
         }
 
-        public virtual void Start()
+        public virtual async Task Start()
         {
             //put errors back onto process queue
             using (var errorQueue = SmsFactory.Receiver(errorSink.ProviderName, errorSink.QueueName))
@@ -93,7 +95,7 @@ namespace Sms
 
                 while (true)
                 {
-                    var error = errorQueue.Receive(TimeSpan.FromMilliseconds(0));
+                    var error = await errorQueue.TryReceiveAsync();
 
                     if (error == null)
                         break;
@@ -111,7 +113,7 @@ namespace Sms
                 }
             }
 
-            this.task.Start();
+            await task.Start();
         }
 
         public virtual Exception Stop()

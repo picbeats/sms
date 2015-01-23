@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Threading.Tasks;
+using System.Threading;
 
 namespace Sms.Messaging
 {
@@ -9,9 +11,15 @@ namespace Sms.Messaging
         string QueueName { get; }
 
         /// <summary>
+        /// Returns a single message or null
+        /// </summary>
+        /// <returns></returns>
+        Task<MessageResult> TryReceiveAsync();
+
+        /// <summary>
         ///     Blocks until a single message is returned
         /// </summary>
         /// <returns></returns>
-        MessageResult Receive(TimeSpan? timeout = null);
+        Task<MessageResult> ReceiveAsync(CancellationToken cancellationToken);
     }
 }

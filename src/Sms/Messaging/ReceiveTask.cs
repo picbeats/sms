@@ -11,13 +11,14 @@ namespace Sms.Messaging
         private readonly IReceiver receiver;
         private bool stopping;
         private Task task;
+        private CancellationTokenSource cancellationTokenSource; 
         private readonly TimeSpan? receiveTimeOut;
 
-        public ReceiveTask(IReceiver receiver, Action<MessageResult> action, TimeSpan? receiveTimeOut = null)
+        public ReceiveTask(IReceiver receiver, Action<MessageResult> action)
         {
             Action = action;
             this.receiver = receiver;
-            this.receiveTimeOut = receiveTimeOut;
+            this.cancellationTokenSource = new CancellationTokenSource();
         }
 
         private bool Receiving { get; set; }
@@ -33,51 +34,54 @@ namespace Sms.Messaging
             receiver.Dispose();
         }
 
-        public void Start()
+        public Task Start()
         {
             if (task != null)
-                return;
+                return task;
             
             Receiving = true;
             stopping = false;
 
-            task = Task.Factory.StartNew(() =>
+            task = Run();
+            return task;
+        }
+
+        private async Task Run()
+        {
+            try
+            {
+                int noMessageCount = 0;
+                while (!stopping)
                 {
-                    try
+                    var message = await receiver.ReceiveAsync(cancellationTokenSource.Token);
+
+                    if (stopping)
+                        break;
+
+                    if (message != null)
                     {
-                        int noMessageCount = 0;
-                        while (!stopping)
+                        noMessageCount = 0;
+                        try
                         {
-                            var message = receiver.Receive(receiveTimeOut ?? TimeSpan.FromMilliseconds(500));
-
-                            if (stopping)
-                                break;
-
-                            if (message != null)
-                            {
-                                noMessageCount = 0;
-                                try
-                                {
-                                    Action(message);
-                                }
-                                catch
-                                {
-                                    message.Failed();
-                                    throw;
-                                }
-                            }
-                            else
-                            {
-                                noMessageCount ++;
-                                Thread.Sleep( Math.Min(100 * noMessageCount,1000));
-                            }
+                            Action(message);
+                        }
+                        catch
+                        {
+                            message.Failed();
+                            throw;
                         }
                     }
-                    finally
+                    else
                     {
-                        Receiving = false;
+                        noMessageCount++;
+                        Thread.Sleep(Math.Min(100 * noMessageCount, 1000));
                     }
-                });
+                }
+            }
+            finally
+            {
+                Receiving = false;
+            }
         }
 
         public Exception Stop()

@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Sms.Messaging;
 using Sms.Routing;
 
@@ -23,7 +25,7 @@ namespace Sms.Router
 
 		public IRouterConfiguration Config { get; private set; }
 
-		public void Start()
+        public async Task Start()
 		{
 
 			//Process Errors
@@ -34,7 +36,7 @@ namespace Sms.Router
 
 				while (true)
 				{
-					var error = errorQueue.Receive(TimeSpan.FromMilliseconds(0));
+					var error = await errorQueue.TryReceiveAsync();
 
 					if (error == null)
 						break;

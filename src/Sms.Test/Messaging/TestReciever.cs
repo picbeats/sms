@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Threading;
+using System.Threading.Tasks;
 using Sms.Messaging;
 
 namespace Sms.Test
@@ -16,11 +18,14 @@ namespace Sms.Test
         public string ProviderName { get; private set; }
         public string QueueName { get { return "TestReceiver"; } }
 
-        public MessageResult Receive(TimeSpan? timeout = null)
+        public Task<MessageResult> TryReceiveAsync()
         {
-            return null;
+            return Task.FromResult<MessageResult>(null);
         }
 
-       
+        public Task<MessageResult> ReceiveAsync(CancellationToken cancellationToken)
+        {
+            return Task.FromResult<MessageResult>(null);
+        }       
     }
 }

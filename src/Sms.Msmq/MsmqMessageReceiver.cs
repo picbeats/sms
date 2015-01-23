@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Messaging;
 using System.Threading;
+using System.Threading.Tasks;
 using Sms.Messaging;
 
 namespace Sms.Msmq
@@ -35,7 +36,7 @@ namespace Sms.Msmq
 
         public string QueueName { get; private set; }
 
-        public MessageResult Receive(TimeSpan? timeout = null)
+        public Task<MessageResult> TryReceiveAsync()
         {
             MessageQueueTransaction transaction = null;
             try
@@ -44,48 +45,23 @@ namespace Sms.Msmq
                 {
                     transaction = new MessageQueueTransaction();
                     transaction.Begin();
-                    using (
-                        var raw = timeout.HasValue
-                                      ? messageQueue.Receive(timeout.Value, transaction)
-                                      : messageQueue.Receive(transaction))
+
+                    using (var raw = messageQueue.Receive(TimeSpan.Zero, transaction))
                     {
-
                         var message = ((SmsMessageContent) raw.Body).ToMessage();
-
-                        Func<MessageQueueTransaction, Action<bool>> onReceive = queueTransaction =>
-                            {
-                                Action<bool> handler = x =>
-                                    {
-                                        if (queueTransaction.Status == MessageQueueTransactionStatus.Pending)
-                                        {
-                                            if (x)
-                                                queueTransaction.Commit();
-                                            else
-                                                queueTransaction.Abort();
-                                        }
-
-                                        queueTransaction.Dispose();
-                                    };
-                                return handler;
-                            };
-
-                        return new MessageResult(message, onReceive(transaction));
+                        return Task.FromResult(BuildMessageResult(transaction, message));
                     }
                 }
                 catch (MessageQueueException ex)
                 {
                     TryToAbortTransaction(transaction);
 
-                    if (ex.Message == "Timeout for the requested operation has expired.")
+                    if (ex.MessageQueueErrorCode == MessageQueueErrorCode.IOTimeout)
                     {
-                        Logger.Debug("Msmq receiver: timeout while waiting for message (this is ok)");
-                        return null;
+                        return Task.FromResult<MessageResult>(null);
                     }
-                    int sleepForMs = timeout.HasValue ? timeout.Value.Milliseconds : 500;
-                    Logger.Warn("Msmq receiver: message queue exception on receive, sleeping for {0} Details: {1}",
-                                sleepForMs, ex);
-                    Thread.Sleep(sleepForMs);
-                    return null;
+
+                    throw;
                 }
             }
             catch (Exception ex)
@@ -94,6 +70,68 @@ namespace Sms.Msmq
                 Logger.Warn("Msmq receiver: unknow error: {0}", ex);
                 throw;
             }
+        }
+
+        public Task<MessageResult> ReceiveAsync(CancellationToken cancelleationToken)
+        {
+            return Task.Run(() =>
+            {
+                while (true)
+                {
+                    cancelleationToken.ThrowIfCancellationRequested();
+                    var transaction = new MessageQueueTransaction();
+                    try
+                    {
+                        transaction.Begin();
+
+                        using (var raw = messageQueue.Receive(TimeSpan.FromMilliseconds(500), transaction))
+                        {
+                            var message = ((SmsMessageContent)raw.Body).ToMessage();
+                            return BuildMessageResult(transaction, message);
+                        }
+                    }
+                    catch (MessageQueueException ex)
+                    {
+                        TryToAbortTransaction(transaction);
+
+                        if (ex.MessageQueueErrorCode == MessageQueueErrorCode.IOTimeout)
+                        {
+                            continue;
+                        }
+
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        TryToAbortTransaction(transaction);
+                        Logger.Warn("Msmq receiver: unknow error: {0}", ex);
+                        throw;
+                    }
+                }
+            });
+        }
+
+
+        private static MessageResult BuildMessageResult(MessageQueueTransaction transaction, SmsMessage message)
+        {
+            Func<MessageQueueTransaction, Action<bool>> onReceive = queueTransaction =>
+            {
+                Action<bool> handler = x =>
+                {
+                    if (queueTransaction.Status == MessageQueueTransactionStatus.Pending)
+                    {
+                        if (x)
+                            queueTransaction.Commit();
+                        else
+                            queueTransaction.Abort();
+                    }
+
+                    queueTransaction.Dispose();
+                };
+                return handler;
+            };
+
+            return new MessageResult(message, onReceive(transaction));
         }
 
         private void TryToAbortTransaction(MessageQueueTransaction transaction)
@@ -112,6 +150,5 @@ namespace Sms.Msmq
                 }
             }
         }
-
     }
 }
